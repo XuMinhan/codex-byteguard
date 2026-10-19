@@ -2920,6 +2920,22 @@ async fn stream_error_restores_hidden_status_indicator() {
 }
 
 #[tokio::test]
+async fn byteguard_compaction_notices_are_visible_in_chat() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    for message in [
+        "[ByteGuard] 开始自动压缩上下文",
+        "[ByteGuard] 上下文自动压缩完成",
+        "[ByteGuard] 自动压缩失败",
+    ] {
+        chat.on_warning(message);
+        let cells = super::helpers::drain_insert_history(&mut rx);
+        assert_eq!(cells.len(), 1);
+        let rendered = lines_to_single_string(&cells[0]);
+        assert!(rendered.contains(message), "notice is hidden: {rendered}");
+    }
+}
+
+#[tokio::test]
 async fn warning_event_adds_warning_history_cell() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     handle_warning(&mut chat, "test warning message");

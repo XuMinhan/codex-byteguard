@@ -1882,6 +1882,14 @@ impl ResponsesHttpExecutor<'_> {
                 }
                 request.input = input;
             }
+            crate::request_byte_budget::check(
+                &request,
+                matches!(
+                    responses_metadata.request_kind,
+                    Some(crate::responses_metadata::CodexResponsesRequestKind::Compaction(_))
+                ),
+                &self.client.state.thread_id.to_string(),
+            )?;
             inference_trace_attempt.record_started(&request);
             let client = ApiResponsesClient::new(
                 transport,
@@ -2190,6 +2198,14 @@ impl ModelClientSession {
                 let ResponsesWsRequest::ResponseCreate(payload) = &mut ws_request;
                 payload.input = input;
             }
+            crate::request_byte_budget::check(
+                &ws_request,
+                matches!(
+                    responses_metadata.request_kind,
+                    Some(crate::responses_metadata::CodexResponsesRequestKind::Compaction(_))
+                ),
+                &self.client.state.thread_id.to_string(),
+            )?;
             if !previous_response_id_from_untraced_warmup {
                 inference_trace_attempt.record_started(&ws_request);
             }

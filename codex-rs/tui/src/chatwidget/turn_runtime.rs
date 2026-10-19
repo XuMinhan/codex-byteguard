@@ -579,7 +579,12 @@ impl ChatWidget {
         if !self.warning_display_state.should_display(&message) {
             return;
         }
-        self.add_to_history(history_cell::new_warning_event(message));
+        let cell = if message.starts_with("[ByteGuard]") {
+            history_cell::new_usage_warning_event(message)
+        } else {
+            history_cell::new_warning_event(message)
+        };
+        self.add_to_history(cell);
         self.request_redraw();
     }
 

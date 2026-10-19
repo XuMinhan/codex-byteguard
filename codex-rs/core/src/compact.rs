@@ -356,6 +356,11 @@ async fn run_compact_task_inner_impl(
             {
                 return Err(e);
             }
+            Err(e) if crate::request_byte_budget::is_exceeded(&e) => {
+                // A local byte ceiling cannot improve with network retries. In
+                // particular, do not trim old history to make this request fit.
+                return Err(e);
+            }
             Err(e) if matches!(e.details(), CodexErrorDetails::ContextWindowExceeded) => {
                 if turn_input_len > 1 {
                     // Trim from the beginning to preserve cache (prefix-based) and keep recent messages intact.

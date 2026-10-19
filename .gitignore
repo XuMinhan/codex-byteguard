@@ -94,3 +94,13 @@ CHANGELOG.ignore.md
 # Python bytecode files
 __pycache__/
 *.pyc
+
+# ByteGuard: local credentials, conversations and runtime state
+/.codex/
+/auth.json
+/config.toml
+/session_index.jsonl
+/state_*.sqlite*
+/sessions/
+/archived_sessions/
+/byteguard/status/

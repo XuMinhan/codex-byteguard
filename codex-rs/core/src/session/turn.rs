@@ -1729,7 +1729,8 @@ async fn run_sampling_request(
     } else {
         None
     };
-    let base_instructions = sess.get_prompt_base_instructions().await;
+    let mut base_instructions = sess.get_prompt_base_instructions().await;
+    let mut byte_budget_compacted = false;
 
     let tool_runtime = ToolCallRuntime::new(
         Arc::clone(&sess),
@@ -1811,6 +1812,81 @@ async fn run_sampling_request(
                 _ => err,
             },
         };
+
+        if crate::request_byte_budget::is_exceeded(&err) {
+            // Only retry a model step once. A schema or a single huge input may remain
+            // too large after summarization; never loop or discard it silently.
+            if byte_budget_compacted
+                || sess
+                    .services
+                    .thread_extension_data
+                    .get::<AutoCompactionDisabled>()
+                    .is_some()
+                || turn_context.config.features.enabled(Feature::TokenBudget)
+                || crate::guardian::is_basic_session_source(&turn_context.session_source)
+            {
+                return Err(err);
+            }
+            byte_budget_compacted = true;
+            sess.send_event(
+                &turn_context,
+                EventMsg::Warning(WarningEvent {
+                    message: format!(
+                        "[ByteGuard] 开始自动压缩上下文：请求大小已达到保护阈值。压缩完成后会自动继续当前任务。\n{err}"
+                    ),
+                }),
+            )
+            .await;
+            let compacted = Box::pin(run_auto_compact(
+                &sess,
+                Arc::clone(&step_context),
+                Arc::clone(&step_context),
+                client_session,
+                CompactionReason::ContextLimit,
+                CompactionPhase::MidTurn,
+                None,
+            ))
+            .await;
+            let compacted = match compacted {
+                Ok(compacted) => compacted,
+                Err(compaction_err) => {
+                    sess.send_event(
+                        &turn_context,
+                        EventMsg::Warning(WarningEvent {
+                            message: format!(
+                                "[ByteGuard] 自动压缩失败，当前任务无法继续：{compaction_err}"
+                            ),
+                        }),
+                    )
+                    .await;
+                    return Err(compaction_err);
+                }
+            };
+            if !compacted {
+                sess.send_event(
+                    &turn_context,
+                    EventMsg::Warning(WarningEvent {
+                        message: "[ByteGuard] 自动压缩未完成，当前任务无法继续。".to_string(),
+                    }),
+                )
+                .await;
+                return Err(err);
+            }
+            sess.send_event(
+                &turn_context,
+                EventMsg::Warning(WarningEvent {
+                    message: "[ByteGuard] 上下文自动压缩完成，正在继续当前任务；发送前会重新检查请求大小。".to_string(),
+                }),
+            )
+            .await;
+            // Rebuild from the newly installed history and instructions, not the
+            // oversized pre-compaction prompt. The active task stays in this loop.
+            base_instructions = sess.get_prompt_base_instructions().await;
+            initial_input = None;
+            original_input = None;
+            executed_tool_calls_by_output.clear();
+            continue;
+        }
 
         let original_input = original_input.get_or_insert(prompt.input);
 

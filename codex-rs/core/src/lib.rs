@@ -14,6 +14,7 @@ mod realtime_context;
 mod realtime_conversation;
 mod realtime_history;
 mod realtime_prompt;
+mod request_byte_budget;
 mod responses_headers;
 pub use responses_headers::CodexResponsesHeaders;
 mod responses_metadata;

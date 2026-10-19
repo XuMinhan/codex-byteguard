@@ -1,0 +1,17 @@
+# Build and runtime data stay outside source control.
+**/bin/
+**/__pycache__/
+**/*.pyc
+**/server.pid
+**/backups/
+**/sessions/
+**/archived_sessions/
+**/status/
+**/auth.json
+**/config.toml
+**/*.sqlite*
+**/*.log
+**/.env
+releases/
+*.zip
+*.bundle
