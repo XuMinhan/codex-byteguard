@@ -1,0 +1,115 @@
+name: ByteGuard Windows x64
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: byteguard-windows-1.2.1
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      CARGO_TARGET_DIR: C:\byteguard-build
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '3'
+      CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+      LIBSQLITE3_FLAGS: SQLITE_DISABLE_INTRINSIC
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Configure Git paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 9e6107ba7d05f0b948299db18ac7432db5d4aa3c
+          persist-credentials: false
+      - name: Verify source
+        run: |
+          if ((git rev-parse HEAD) -ne '9e6107ba7d05f0b948299db18ac7432db5d4aa3c') { throw 'Source commit mismatch' }
+          Get-PSDrive -PSProvider FileSystem
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12'
+      - uses: ./.github/actions/setup-msvc-env
+        with:
+          target: x86_64-pc-windows-msvc
+      - uses: ./.github/actions/setup-rusty-v8
+        with:
+          target: x86_64-pc-windows-msvc
+      - name: Build CLI and Windows helpers
+        working-directory: codex-rs
+        run: |
+          cargo build --locked --profile dev-small --bin codex --bin codex-code-mode-host --bin codex-responses-api-proxy --bin codex-windows-sandbox-setup --bin codex-windows-sandbox-service --bin codex-command-runner
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Byte budget unit tests
+        working-directory: codex-rs
+        run: |
+          cargo test --locked -p codex-core --lib request_byte_budget --profile dev-small
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Chinese TUI notice test
+        working-directory: codex-rs
+        run: |
+          cargo test --locked -p codex-tui --lib byteguard_compaction_notices_are_visible_in_chat --profile dev-small
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Local HTTP/SSE and monitor tests
+        run: |
+          python byteguard/Codex-ByteGuard/test_byte_guard.py "$env:CARGO_TARGET_DIR/dev-small/codex.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python byteguard/Codex-Chat-Guardian/test_server.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:CARGO_TARGET_DIR/dev-small/codex.exe" --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package only tracked tools and tested binaries
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess, shutil, os, json, hashlib, zipfile
+          name = 'codex-byteguard-1.2.1-windows-x64'
+          root = Path(os.environ['RUNNER_TEMP']) / name
+          root.mkdir()
+          paths = subprocess.check_output(['git','ls-files','-z','byteguard','LICENSE','NOTICE','BYTEGUARD.md','RELEASE-BYTEGUARD.md']).decode().strip('\0').split('\0')
+          for path in paths:
+              src = Path(path)
+              if not src.is_file(): continue
+              dst = root / path
+              dst.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(src, dst)
+          bins = ['codex','codex-code-mode-host','codex-responses-api-proxy','codex-windows-sandbox-setup','codex-windows-sandbox-service','codex-command-runner']
+          bindir = root / 'byteguard/Codex-ByteGuard/bin'
+          bindir.mkdir()
+          hashes = {}
+          for binary in bins:
+              src = Path(os.environ['CARGO_TARGET_DIR']) / 'dev-small' / (binary + '.exe')
+              dst = bindir / src.name
+              shutil.copy2(src, dst)
+              hashes[dst.name] = hashlib.sha256(dst.read_bytes()).hexdigest()
+          (root/'Start.cmd').write_text('@echo off\r\npowershell.exe -NoProfile -File "%~dp0byteguard\\Codex-ByteGuard\\Start.ps1" %*\r\nif errorlevel 1 pause\r\n')
+          (root/'README.txt').write_text('Codex ByteGuard 1.2.1 - Windows x64\n\nRun Start.cmd, or Start.cmd resume.\nUses your existing Codex login and configuration; no credentials are included.\nDefault ceiling: 950000 bytes; generation threshold: 855000 bytes.\nRequires Windows x64 and an organization-approved PowerShell execution policy.\nNo execution-policy or certificate-validation bypass is included.\nBuilt with Rust 1.95.0 / dev-small (unoptimized, no debug information).\n11 native Windows tests passed: core 4, TUI 1, HTTP/SSE 4, monitor 2.\nNo real-model overnight or WebSocket end-to-end validation was performed.\nThe executables do not have a publisher code-signing certificate.\nSource: https://github.com/XuMinhan/codex-byteguard\n', encoding='utf-8')
+          manifest = {'version':'1.2.1','source_commit':'9e6107ba7d05f0b948299db18ac7432db5d4aa3c','upstream_commit':'89461ea6833832b0551ce24ee32205824d5c108d','target':'x86_64-pc-windows-msvc','profile':'dev-small','tests':{'core':4,'tui':1,'http_sse':4,'monitor':2},'binary_sha256':hashes}
+          (root/'windows-build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          out = Path('windows-dist'); out.mkdir()
+          archive = out / (name + '.zip')
+          forbidden = {'auth.json','config.toml','session_index.jsonl'}
+          with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as z:
+              for src in sorted(root.rglob('*')):
+                  if not src.is_file(): continue
+                  assert src.name not in forbidden and not src.name.endswith(('.log','.sqlite','.pyc'))
+                  z.write(src, str(src.relative_to(root.parent)))
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          (out/'SHA256SUMS-windows.txt').write_text(digest+'  '+archive.name+'\n')
+          shutil.copy2(root/'windows-build-manifest.json',out/'windows-build-manifest.json')
+          print(archive.name, digest)
+          PY
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: byteguard-windows-x64-1.2.1
+          path: windows-dist/*
+          retention-days: 14
+          if-no-files-found: error
