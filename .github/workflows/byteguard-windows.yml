@@ -2,7 +2,7 @@ name: ByteGuard Windows x64
 on:
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: byteguard-windows-1.2.1
   cancel-in-progress: false
@@ -22,20 +22,24 @@ jobs:
     steps:
       - name: Configure Git paths
         run: git config --global core.longpaths true
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: 9e6107ba7d05f0b948299db18ac7432db5d4aa3c
-          persist-credentials: false
+      - name: Check out the exact published source
+        run: |
+          git init .
+          git remote add origin https://github.com/XuMinhan/codex-byteguard.git
+          git fetch --depth=1 --no-tags origin 9e6107ba7d05f0b948299db18ac7432db5d4aa3c
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify source
         run: |
           if ((git rev-parse HEAD) -ne '9e6107ba7d05f0b948299db18ac7432db5d4aa3c') { throw 'Source commit mismatch' }
           Get-PSDrive -PSProvider FileSystem
-      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582
-        with:
-          targets: x86_64-pc-windows-msvc
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
-        with:
-          python-version: '3.12'
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustc +1.95.0 --version
+          python --version
       - uses: ./.github/actions/setup-msvc-env
         with:
           target: x86_64-pc-windows-msvc
@@ -107,9 +111,9 @@ jobs:
           shutil.copy2(root/'windows-build-manifest.json',out/'windows-build-manifest.json')
           print(archive.name, digest)
           PY
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
-        with:
-          name: byteguard-windows-x64-1.2.1
-          path: windows-dist/*
-          retention-days: 14
-          if-no-files-found: error
+      - name: Publish tested Windows assets to the existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload byteguard-v1.2.1 windows-dist/codex-byteguard-1.2.1-windows-x64.zip windows-dist/SHA256SUMS-windows.txt windows-dist/windows-build-manifest.json --repo XuMinhan/codex-byteguard
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
