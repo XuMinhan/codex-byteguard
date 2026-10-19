@@ -90,7 +90,7 @@ jobs:
               dst = bindir / src.name
               shutil.copy2(src, dst)
               hashes[dst.name] = hashlib.sha256(dst.read_bytes()).hexdigest()
-          (root/'Start.cmd').write_text('@echo off\r\npowershell.exe -NoProfile -File "%~dp0byteguard\\Codex-ByteGuard\\Start.ps1" %*\r\nif errorlevel 1 pause\r\n')
+          (root/'Start.cmd').write_text('@echo off\npowershell.exe -NoProfile -File "%~dp0byteguard\\Codex-ByteGuard\\Start.ps1" %*\nif errorlevel 1 pause\n')
           (root/'README.txt').write_text('Codex ByteGuard 1.2.1 - Windows x64\n\nRun Start.cmd, or Start.cmd resume.\nUses your existing Codex login and configuration; no credentials are included.\nDefault ceiling: 950000 bytes; generation threshold: 855000 bytes.\nRequires Windows x64 and an organization-approved PowerShell execution policy.\nNo execution-policy or certificate-validation bypass is included.\nBuilt with Rust 1.95.0 / dev-small (unoptimized, no debug information).\n11 native Windows tests passed: core 4, TUI 1, HTTP/SSE 4, monitor 2.\nNo real-model overnight or WebSocket end-to-end validation was performed.\nThe executables do not have a publisher code-signing certificate.\nSource: https://github.com/XuMinhan/codex-byteguard\n', encoding='utf-8')
           manifest = {'version':'1.2.1','source_commit':'9e6107ba7d05f0b948299db18ac7432db5d4aa3c','upstream_commit':'89461ea6833832b0551ce24ee32205824d5c108d','target':'x86_64-pc-windows-msvc','profile':'dev-small','tests':{'core':4,'tui':1,'http_sse':4,'monitor':2},'binary_sha256':hashes}
           (root/'windows-build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
